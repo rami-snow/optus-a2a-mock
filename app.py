@@ -31,24 +31,28 @@ API_KEY = os.environ.get("API_KEY", "")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8000").rstrip("/")
 
 # ---------------------------------------------------------------- data ----
-# Mirrors the lab's staging tables. Decoy ABNs are placeholders: align them
-# with whatever you seeded in the ServiceNow staging tables.
+# Mirrors the lab's seed data (u_optus_lab_contract_sla / u_optus_lab_crm_account).
+# The contract ABN is stored without spaces and the CRM ABN with spaces, on purpose.
 CONTRACTS = {
     "CTR-44210": {
         "entity": "Meridian Logistics Group",
-        "abn": "51 824 753 556",
-        "sla_clause": "P1 >4hr = credit",
+        "abn": "51824753556",
+        "sla_clause": "P1 > 4hr = Credit",
     },
 }
 CRM_ACCOUNTS = [
     {"id": "ACC-77021", "name": "Meridian Logistics Group Pty Ltd", "abn": "51 824 753 556"},
-    {"id": "ACC-77022", "name": "Meridian Health Group", "abn": "11 111 111 111"},       # decoy
-    {"id": "ACC-77023", "name": "Meridian Logistic Solutions", "abn": "22 222 222 222"},  # decoy
+    {"id": "ACC-77022", "name": "Meridian Health Group", "abn": "33 102 459 877"},        # decoy
+    {"id": "ACC-77023", "name": "Meridian Logistics Solutions", "abn": "67 551 204 390"},  # decoy
 ]
 
 
 def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+
+def norm_abn(abn: str) -> str:
+    return re.sub(r"\s+", "", abn or "")
 
 
 def reconcile(text: str) -> str:
@@ -60,7 +64,7 @@ def reconcile(text: str) -> str:
 
     ranked = sorted(CRM_ACCOUNTS, key=lambda a: similarity(c["entity"], a["name"]), reverse=True)
     best = ranked[0]
-    abn_match = best["abn"] == c["abn"]
+    abn_match = norm_abn(best["abn"]) == norm_abn(c["abn"])
     score = similarity(c["entity"], best["name"])
 
     if abn_match and score >= 0.8:
@@ -82,10 +86,13 @@ def reconcile(text: str) -> str:
     else:
         sla = "SLA applicability not assessed because the customer match is not confident."
 
+    others = [a for a in CRM_ACCOUNTS if a["id"] != best["id"]]
+    decoys = ", ".join(f"{a['id']} ({a['name']}, ABN {a['abn']})" for a in others)
     return (
         f"Contract {cid} ({c['entity']}, ABN {c['abn']}) vs CRM account {best['id']} "
         f"({best['name']}, ABN {best['abn']}): {verdict}. Confidence: {confidence} "
-        f"(name similarity {score:.2f}, ABN {'matches' if abn_match else 'differs'}). {sla} "
+        f"(name similarity {score:.2f}, ABN {'matches' if abn_match else 'differs'} ignoring spaces). "
+        f"Other candidates ruled out on ABN: {decoys}. {sla} "
         "This is a recommendation only - no credit has been applied or committed."
     )
 
